@@ -14,12 +14,12 @@
 
 from functools import partial
 
+import jax
+from flax.core import freeze
+from jax import numpy as jnp
 from netket.sampler import Sampler, SamplerState
 from netket.utils import struct
 from netket.utils.types import PRNGKeyT, PyTree
-
-import jax
-from jax import numpy as jnp
 
 
 def batch_choice(key, a, p):
@@ -67,7 +67,7 @@ class ARDirectSampler(Sampler):
     def _init_cache(sampler, model, σ, key):
         variables = model.init(key, σ)
         if "cache" in variables:
-            _, cache = variables.pop("cache")
+            cache = variables["cache"]
         else:
             cache = None
         return cache
@@ -93,19 +93,30 @@ class ARDirectSampler(Sampler):
 
 
 @partial(jax.jit, static_argnums=(1, 4))
-def _sample_chain(sampler, model, params, state, chain_length):
+def _sample_chain(sampler, model, variables, state, chain_length):
+    params = variables["params"]
+
     def scan_fun(carry, index):
         σ, cache, key = carry
+        if cache:
+            variables = freeze({"params": params, "cache": cache})
+        else:
+            variables = freeze({"params": params})
         new_key, key = jax.random.split(key)
 
-        p, cache = model.apply(
-            params,
+        p, mutables = model.apply(
+            variables,
             σ,
-            cache,
-            method=model.conditionals,
+            index,
+            method=model.conditional,
+            mutable=["cache"],
         )
+        if "cache" in mutables:
+            cache = mutables["cache"]
+        else:
+            cache = None
+
         local_states = jnp.asarray(sampler.hilbert.local_states, dtype=sampler.dtype)
-        p = p[:, index, :]
         new_σ = batch_choice(key, local_states, p)
         σ = σ.at[:, index].set(new_σ)
 
@@ -120,16 +131,12 @@ def _sample_chain(sampler, model, params, state, chain_length):
         dtype=sampler.dtype,
     )
 
-    # Init `cache` before generating each sample,
+    # Initialize `cache` before generating each sample,
     # even if `params` is not changed and `reset` is not called
     cache = sampler._init_cache(model, σ, key_init)
 
     indices = jnp.arange(sampler.hilbert.size)
-    (σ, cache, _), _ = jax.lax.scan(
-        scan_fun,
-        (σ, cache, key_scan),
-        indices,
-    )
+    (σ, cache, _), _ = jax.lax.scan(scan_fun, (σ, cache, key_scan), indices)
     σ = σ.reshape((chain_length, sampler.n_chains_per_rank, sampler.hilbert.size))
 
     new_state = state.replace(σ=σ, cache=cache, key=new_key)

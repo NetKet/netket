@@ -12,70 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import abc
 from typing import Any, Callable, Iterable, Union
 
 import jax
-from flax import linen as nn
 from jax import numpy as jnp
-from plum import dispatch
-
-from netket.hilbert import Fock, Spin
-from netket.hilbert.homogeneous import HomogeneousHilbert
-from netket.nn import MaskedConv1D, MaskedDense1D
+from netket.hilbert import CustomHilbert
+from netket.models.autoreg import ARNN, l2_normalize
+from netket.nn import FastMaskedConv1D, FastMaskedDense1D
 from netket.nn.initializers import zeros
 from netket.nn.masked_linear import default_kernel_init
 from netket.utils.types import Array, DType, NNInitFunc
 
 
-class ARNN(nn.Module):
-    """Base class for autoregressive neural networks."""
+class FastARNNDense(ARNN):
+    """
+    Fast autoregressive neural network with dense layers.
+    See :ref:`netket.nn.FastMaskedConv1D` for a brief explanation of fast autoregressive sampling.
+    TODO: FastMaskedDense1D does not support JIT yet
+    """
 
-    hilbert: HomogeneousHilbert
-    """the Hilbert space. Only homogeneous unconstrained Hilbert spaces are supported."""
-
-    def __post_init__(self):
-        super().__post_init__()
-
-        if not isinstance(self.hilbert, HomogeneousHilbert):
-            raise ValueError(
-                f"Only homogeneous Hilbert spaces are supported by ARNN, but hilbert is a {type(self.hilbert)}."
-            )
-
-        if self.hilbert.constrained:
-            raise ValueError("Only unconstrained Hilbert spaces are supported by ARNN.")
-
-    @abc.abstractmethod
-    def conditional(self, inputs: Array, index: int) -> Array:
-        """
-        Computes the probabilities for a site to take each value.
-
-        Args:
-          inputs: configurations with dimensions (batch, Hilbert.size).
-          index: index of the site.
-
-        Returns:
-          The probabilities with dimensions (batch, Hilbert.local_size).
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def conditionals(self, inputs: Array) -> Array:
-        """
-        Computes the probabilities for each site to take each value.
-
-        Args:
-          inputs: configurations with dimensions (batch, Hilbert.size).
-
-        Returns:
-          The probabilities with dimensions (batch, Hilbert.size, Hilbert.local_size).
-        """
-        raise NotImplementedError
-
-
-class ARNNDense(ARNN):
-    """Autoregressive neural network with dense layers."""
-
+    hilbert: CustomHilbert
+    """the discrete Hilbert space."""
     layers: int
     """number of layers."""
     features: Union[Iterable[int], int]
@@ -93,6 +50,8 @@ class ARNNDense(ARNN):
     """initializer for the weights."""
     bias_init: NNInitFunc = zeros
     """initializer for the biases."""
+    eps: float = 1e-7
+    """a small number to avoid numerical instability."""
 
     def setup(self):
         if isinstance(self.features, int):
@@ -103,7 +62,8 @@ class ARNNDense(ARNN):
         assert features[-1] == self.hilbert.local_size
 
         self._layers = [
-            MaskedDense1D(
+            FastMaskedDense1D(
+                size=self.hilbert.size,
                 features=features[i],
                 exclusive=(i == 0),
                 use_bias=self.use_bias,
@@ -116,7 +76,7 @@ class ARNNDense(ARNN):
         ]
 
     def conditional(self, inputs: Array, index: int) -> Array:
-        return _conditionals(self, inputs)[:, index, :]
+        return _conditional(self, inputs, index)
 
     def conditionals(self, inputs: Array) -> Array:
         return _conditionals(self, inputs)
@@ -125,9 +85,14 @@ class ARNNDense(ARNN):
         return _call(self, inputs)
 
 
-class ARNNConv1D(ARNN):
-    """Autoregressive neural network with 1D convolution layers."""
+class FastARNNConv1D(ARNN):
+    """
+    Fast autoregressive neural network with 1D convolution layers.
+    See :ref:`netket.nn.FastMaskedConv1D` for a brief explanation of fast autoregressive sampling.
+    """
 
+    hilbert: CustomHilbert
+    """the discrete Hilbert space."""
     layers: int
     """number of layers."""
     features: Union[Iterable[int], int]
@@ -149,6 +114,8 @@ class ARNNConv1D(ARNN):
     """initializer for the weights."""
     bias_init: NNInitFunc = zeros
     """initializer for the biases."""
+    eps: float = 1e-7
+    """a small number to avoid numerical instability."""
 
     def setup(self):
         if isinstance(self.features, int):
@@ -159,7 +126,8 @@ class ARNNConv1D(ARNN):
         assert features[-1] == self.hilbert.local_size
 
         self._layers = [
-            MaskedConv1D(
+            FastMaskedConv1D(
+                size=self.hilbert.size,
                 features=features[i],
                 kernel_size=self.kernel_size,
                 kernel_dilation=self.kernel_dilation,
@@ -174,7 +142,7 @@ class ARNNConv1D(ARNN):
         ]
 
     def conditional(self, inputs: Array, index: int) -> Array:
-        return _conditionals(self, inputs)[:, index, :]
+        return _conditional(self, inputs, index)
 
     def conditionals(self, inputs: Array) -> Array:
         return _conditionals(self, inputs)
@@ -183,13 +151,24 @@ class ARNNConv1D(ARNN):
         return _call(self, inputs)
 
 
-def l2_normalize(log_psi: Array) -> Array:
+def _conditional(model: ARNN, inputs: Array, index: int) -> Array:
     """
-    Normalizes log_psi to have L2-norm 1 along the last axis.
+    Computes the probabilities for a site to take each value.
+    See `ARNN.conditional`.
     """
-    return log_psi - 1 / 2 * jax.scipy.special.logsumexp(
-        2 * log_psi.real, axis=-1, keepdims=True
-    )
+    if inputs.ndim == 1:
+        inputs = jnp.expand_dims(inputs, axis=0)
+
+    x = inputs[:, index, None]
+
+    for i in range(model.layers):
+        if i > 0:
+            x = model.activation(x)
+        x = model._layers[i](x, index)
+
+    log_psi = l2_normalize(x, model.eps)
+    p = jnp.exp(2 * log_psi.real)
+    return p
 
 
 def _conditionals_log_psi(model: ARNN, inputs: Array) -> Array:
@@ -202,9 +181,9 @@ def _conditionals_log_psi(model: ARNN, inputs: Array) -> Array:
     for i in range(model.layers):
         if i > 0:
             x = model.activation(x)
-        x = model._layers[i](x)
+        x = model._layers[i].eval_full(x)
 
-    log_psi = l2_normalize(x)
+    log_psi = l2_normalize(x, model.eps)
     return log_psi
 
 
@@ -228,7 +207,15 @@ def _call(model: ARNN, inputs: Array) -> Array:
     if inputs.ndim == 1:
         inputs = jnp.expand_dims(inputs, axis=0)
 
-    idx = _local_states_to_numbers(model.hilbert, inputs)
+    initializing = model.is_mutable_collection("params")
+    if initializing:
+        # Create cache
+        x = inputs[:, 0, None]
+        for layer in model._layers:
+            x = layer(x, 0)
+
+    idx = (inputs + model.hilbert.local_size - 1) / 2
+    idx = jnp.asarray(idx, jnp.int64)
     idx = jnp.expand_dims(idx, axis=-1)
 
     log_psi = _conditionals_log_psi(model, inputs)
@@ -236,23 +223,3 @@ def _call(model: ARNN, inputs: Array) -> Array:
     log_psi = jnp.take_along_axis(log_psi, idx, axis=-1)
     log_psi = log_psi.reshape((inputs.shape[0], -1)).sum(axis=1)
     return log_psi
-
-
-@dispatch
-def _local_states_to_numbers(hilbert: Spin, x: Array) -> Array:  # noqa: F811
-    numbers = (x + hilbert.local_size - 1) / 2
-    numbers = jnp.asarray(numbers, jnp.int32)
-    return numbers
-
-
-@dispatch
-def _local_states_to_numbers(hilbert: Fock, x: Array) -> Array:  # noqa: F811
-    numbers = jnp.asarray(x, jnp.int32)
-    return numbers
-
-
-@dispatch
-def _local_states_to_numbers(hilbert: Any, x: Array) -> Array:  # noqa: F811
-    raise NotImplementedError(
-        f"_local_states_to_numbers is not implemented for hilbert {type(hilbert)}."
-    )
