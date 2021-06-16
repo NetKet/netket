@@ -159,7 +159,8 @@ def _conditional(model: ARNN, inputs: Array, index: int) -> Array:
     if inputs.ndim == 1:
         inputs = jnp.expand_dims(inputs, axis=0)
 
-    x = inputs[:, index, None]
+    # When `index = 0`, it doesn't matter what slice of `x` we take
+    x = inputs[:, index - 1, None]
 
     for i in range(model.layers):
         if i > 0:

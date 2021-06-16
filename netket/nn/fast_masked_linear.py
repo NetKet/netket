@@ -59,14 +59,14 @@ class FastMaskedDense1D(nn.Module):
     @nn.compact
     def __call__(self, inputs: Array, index: int) -> Array:
         """
-        Applies the masked linear transformation to an input site.
+        Adds an input site into the cache, and applies the masked linear transformation to the cache.
 
         Args:
-          inputs: an input site with dimensions (batch, features).
-          index: index of the site.
+          inputs: an input site to be added into the cache with dimensions (batch, features).
+          index: the index of the output site. Should be the index of the input site - `self.exclusive`.
 
         Returns:
-          The updated site with dimensions (batch, features).
+          The output site with dimensions (batch, features).
         """
         dtype = jnp.promote_types(inputs.dtype, self.dtype)
 
@@ -81,7 +81,7 @@ class FastMaskedDense1D(nn.Module):
         size = self.size
 
         # Number of input sites depended by the output site at the index
-        size_i = index - self.exclusive + 1
+        size_i = index + 1
 
         # Initialize the cache with zeros, and the RNG key is None
         # `cache.dtype` must be the same as `inputs.dtype` (no promotion)
@@ -92,7 +92,12 @@ class FastMaskedDense1D(nn.Module):
         if not initializing:
             # Add the input site into the cache
             # To write the cache, use `_cache.value` as the left value of the assignment
-            _cache.value = _cache.value.at[:, index, :].set(inputs)
+            _cache.value = lax.cond(
+                index - self.exclusive >= 0,
+                lambda _: _cache.value.at[:, index - self.exclusive, :].set(inputs),
+                lambda _: _cache.value,
+                None,
+            )
         cache = _cache.value
         cache = jnp.asarray(cache, dtype)
 
@@ -192,14 +197,14 @@ class FastMaskedConv1D(nn.Module):
     @nn.compact
     def __call__(self, inputs: Array, index: int) -> Array:
         """
-        Applies the masked convolution to an input site.
+        Adds an input site into the cache, and applies the masked convolution to the cache.
 
         Args:
-          inputs: an input site with dimensions (batch, features).
-          index: index of the site.
+          inputs: an input site to be added into the cache with dimensions (batch, features).
+          index: the index of the output site. Should be the index of the input site - `self.exclusive`.
 
         Returns:
-          The updated site with dimensions (batch, features).
+          The next output site with dimensions (batch, features).
         """
         dtype = jnp.promote_types(inputs.dtype, self.dtype)
 
@@ -215,7 +220,7 @@ class FastMaskedConv1D(nn.Module):
 
         batch, in_features = inputs.shape
         assert in_features % self.feature_group_count == 0
-        cache_size = (kernel_size - (not self.exclusive)) * dilation + 1
+        cache_size = kernel_size * dilation - (not self.exclusive) * (dilation - 1)
 
         # Initialize the cache with zeros, and the RNG key is None
         # `cache.dtype` must be the same as `inputs.dtype` (no promotion)
@@ -231,8 +236,13 @@ class FastMaskedConv1D(nn.Module):
         if not initializing:
             # Add the input site into the cache
             # To write the cache, use `_cache.value` as the left value of the assignment
-            _cache.value = jnp.concatenate(
-                [_cache.value[:, 1:, :], jnp.expand_dims(inputs, axis=1)], axis=1
+            _cache.value = lax.cond(
+                index - self.exclusive >= 0,
+                lambda _: jnp.concatenate(
+                    [_cache.value[:, 1:, :], jnp.expand_dims(inputs, axis=1)], axis=1
+                ),
+                lambda _: _cache.value,
+                None,
             )
         cache = _cache.value
         cache = jnp.asarray(cache, dtype)
@@ -245,8 +255,8 @@ class FastMaskedConv1D(nn.Module):
         kernel = self.param("kernel", self.kernel_init, kernel_shape, self.dtype)
         kernel = jnp.asarray(kernel, dtype)
 
-        if self.exclusive:
-            cache = cache[:, :-dilation, :]
+        if self.exclusive and dilation > 1:
+            cache = cache[:, : -(dilation - 1), :]
 
         dimension_numbers = flax.linen.linear._conv_dimension_numbers(cache.shape)
         y_i = lax.conv_general_dilated(
