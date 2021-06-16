@@ -45,10 +45,6 @@ def batch_choice(key, a, p):
 
 @struct.dataclass
 class ARDirectSamplerState(SamplerState):
-    σ: jnp.ndarray
-    """current batch of (maybe partially sampled) configurations."""
-    cache: PyTree
-    """auxiliary states, e.g., used to implement fast autoregressive sampling."""
     key: PRNGKeyT
     """state of the random number generator."""
 
@@ -73,14 +69,7 @@ class ARDirectSampler(Sampler):
         return cache
 
     def _init_state(sampler, model, variables, key):
-        σ = jnp.zeros(
-            (sampler.n_chains_per_rank, sampler.hilbert.size), dtype=sampler.dtype
-        )
-        if "cache" in variables:
-            cache = variables["cache"]
-        else:
-            cache = None
-        return ARDirectSamplerState(σ=σ, cache=cache, key=key)
+        return ARDirectSamplerState(key=key)
 
     def _reset(sampler, model, variables, state):
         return state
@@ -138,8 +127,8 @@ def _sample_chain(sampler, model, variables, state, chain_length):
     cache = sampler._init_cache(model, σ, key_init)
 
     indices = jnp.arange(sampler.hilbert.size)
-    (σ, cache, _), _ = jax.lax.scan(scan_fun, (σ, cache, key_scan), indices)
+    (σ, _, _), _ = jax.lax.scan(scan_fun, (σ, cache, key_scan), indices)
     σ = σ.reshape((chain_length, sampler.n_chains_per_rank, sampler.hilbert.size))
 
-    new_state = state.replace(σ=σ, cache=cache, key=new_key)
+    new_state = state.replace(key=new_key)
     return σ, new_state
