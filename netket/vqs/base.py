@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import abc
-from typing import Any, Container, Optional, Tuple, Union
+from typing import Any, Optional, Tuple
 
 import jax
 import flax
@@ -28,8 +28,6 @@ from netket.hilbert import AbstractHilbert
 from netket.utils.types import PyTree, PRNGKeyT, NNInitFunc
 from netket.stats import Stats
 
-MutableT = Union[bool, str, Container[str], flax.core.scope.DenyList]
-
 
 class VariationalState(abc.ABC):
     """Abstract class for variational states representing either pure states
@@ -39,7 +37,7 @@ class VariationalState(abc.ABC):
     parameters, and that supports operations such
     as computing quantum expectation values and their gradients.
 
-    A Variational state can be serialized using flax's msgpack machinery.
+    A Variational stat can be serialized using flax's msgpack machinery.
     See `their docs <https://flax.readthedocs.io/en/latest/flax.serialization.html>`_.
 
     """
@@ -50,6 +48,7 @@ class VariationalState(abc.ABC):
 
         Args:
             hilbert: The hilbert space upon which this state is defined.
+
         """
         self._hilbert = hilbert  # type: AbstractHilbert
 
@@ -98,7 +97,7 @@ class VariationalState(abc.ABC):
 
     @property
     def variables(self) -> PyTree:
-        r"""The PyTree containing the paramters and state of the model,
+        r"""The PyTreee containing the paramters and state of the model,
         used when evaluating it.
         """
         return flax.core.freeze({"params": self.parameters, **self.model_state})
@@ -163,21 +162,17 @@ class VariationalState(abc.ABC):
         raise NotImplementedError
 
     def grad(
-        self,
-        Ô: AbstractOperator,
-        *,
-        is_hermitian: Optional[bool] = None,
-        mutable: MutableT = False,
+        self, Ô, *, is_hermitian: Optional[bool] = None, mutable: Optional[Any] = None
     ) -> PyTree:
         r"""Estimates the gradient of the quantum expectation value of a given operator O.
 
         Args:
-            Ô: the operator O.
-            is_hermitian: optional override for whether to use or not the hermitian logic. By default
+            op (netket.operator.AbstractOperator): the operator O.
+            is_hermitian: optional override for whever to use or not the hermitian logic. By default
                 it's automatically detected.
 
         Returns:
-            An estimation of the average gradient of the quantum expectation value <O>.
+            array: An estimation of the average gradient of the quantum expectation value <O>.
         """
         return self.expect_and_grad(Ô, mutable=mutable)[1]
 
@@ -185,15 +180,22 @@ class VariationalState(abc.ABC):
         self,
         Ô: AbstractOperator,
         *,
+        mutable: Optional[Any] = None,
         is_hermitian: Optional[bool] = None,
-        mutable: MutableT = False,
     ) -> Tuple[Stats, PyTree]:
         r"""Estimates both the gradient of the quantum expectation value of a given operator O.
 
         Args:
-            Ô: the operator O for which we compute the expectation value and its gradient.
-            is_hermitian: optional override for whether to use or not the hermitian logic. By default
-                it's automatically detected.
+            Ô: the operator Ô for which we compute the expectation value and it's gradient
+            mutable: Can be bool, str, or list. Specifies which collections in the model_state should
+                     be treated as  mutable: bool: all/no collections are mutable. str: The name of a
+                     single mutable  collection. list: A list of names of mutable collections.
+                     This is used to mutate the state of the model while you train it (for example
+                     to implement BatchNorm. Consult
+                     `Flax's Module.apply documentation <https://flax.readthedocs.io/en/latest/_modules/flax/linen/module.html#Module.apply>`_
+                     for a more in-depth exaplanation).
+            is_hermitian: optional override for whever to use or not the hermitian logic. By default
+                          it's automatically detected.
 
         Returns:
             An estimation of the quantum expectation value <O>.
@@ -252,8 +254,8 @@ class VariationalMixedState(VariationalState):
     def expect_and_grad(
         self,
         Ô: AbstractOperator,
+        mutable: bool = None,
         is_hermitian: Optional[bool] = None,
-        mutable: MutableT = False,
     ) -> Tuple[Stats, PyTree]:
         # do the computation in super-operator space
         if self.hilbert == Ô.hilbert:
