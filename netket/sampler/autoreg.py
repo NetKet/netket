@@ -20,7 +20,7 @@ from jax import numpy as jnp
 
 from netket.sampler import Sampler, SamplerState
 from netket.utils import struct
-from netket.utils.types import PRNGKeyT, PyTree
+from netket.utils.types import PRNGKeyT
 
 
 def batch_choice(key, a, p):
@@ -86,18 +86,19 @@ class ARDirectSampler(Sampler):
 
 @partial(jax.jit, static_argnums=(1, 4))
 def _sample_chain(sampler, model, variables, state, chain_length):
-    params = variables["params"]
+    if "cache" in variables:
+        variables, _ = variables.pop("cache")
 
     def scan_fun(carry, index):
         σ, cache, key = carry
         if cache:
-            variables = freeze({"params": params, "cache": cache})
+            _variables = freeze({**variables, "cache": cache})
         else:
-            variables = freeze({"params": params})
+            _variables = variables
         new_key, key = jax.random.split(key)
 
         p, mutables = model.apply(
-            variables,
+            _variables,
             σ,
             index,
             method=model.conditional,
@@ -124,7 +125,7 @@ def _sample_chain(sampler, model, variables, state, chain_length):
     )
 
     # Initialize `cache` before generating each sample,
-    # even if `params` is not changed and `reset` is not called
+    # even if `variables` is not changed and `reset` is not called
     cache = sampler._init_cache(model, σ, key_init)
 
     indices = jnp.arange(sampler.hilbert.size)
