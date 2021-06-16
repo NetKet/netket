@@ -72,22 +72,24 @@ class ARDirectSampler(Sampler):
             cache = None
         return cache
 
-    def _init_state(sampler, model, params, key):
-        new_key, key = jax.random.split(key)
+    def _init_state(sampler, model, variables, key):
         σ = jnp.zeros(
             (sampler.n_chains_per_rank, sampler.hilbert.size), dtype=sampler.dtype
         )
-        cache = sampler._init_cache(model, σ, key)
-        return ARDirectSamplerState(σ=σ, cache=cache, key=new_key)
+        if "cache" in variables:
+            cache = variables["cache"]
+        else:
+            cache = None
+        return ARDirectSamplerState(σ=σ, cache=cache, key=key)
 
-    def _reset(sampler, model, params, state):
+    def _reset(sampler, model, variables, state):
         return state
 
-    def _sample_chain(sampler, model, params, state, chain_length):
-        return _sample_chain(sampler, model, params, state, chain_length)
+    def _sample_chain(sampler, model, variables, state, chain_length):
+        return _sample_chain(sampler, model, variables, state, chain_length)
 
-    def _sample_next(sampler, model, params, state):
-        σ, new_state = sampler._sample_chain(model, params, state, 1)
+    def _sample_next(sampler, model, variables, state):
+        σ, new_state = sampler._sample_chain(model, variables, state, 1)
         σ = σ.squeeze(axis=0)
         return new_state, σ
 

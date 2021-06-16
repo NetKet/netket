@@ -27,7 +27,7 @@ from netket import jax as nkjax
 from netket.sampler import Sampler
 from netket.stats import Stats, statistics
 from netket.utils import warn_deprecation
-from netket.utils.types import PyTree
+from netket.utils.types import PyTree, SeedT
 from netket.operator import (
     AbstractOperator,
     local_cost_function,
@@ -51,23 +51,23 @@ def apply_diagonal(bare_afun, w, x, *args, **kwargs):
 class MCMixedState(VariationalMixedState, MCState):
     """Variational State for a Mixed Variational Neural Quantum State.
 
-    The state is sampled according to the provided sampler, and it's diagonal is sampled
+    The state is sampled according to the provided sampler, and its diagonal is sampled
     according to another sampler.
     """
 
     def __init__(
         self,
-        sampler,
+        sampler: Sampler,
         model=None,
         *,
-        sampler_diag: Sampler = None,
-        n_samples_diag: int = None,
+        sampler_diag: Optional[Sampler] = None,
+        n_samples_diag: Optional[int] = None,
         n_samples_per_rank_diag: Optional[int] = None,
-        n_discard_per_chain_diag: Optional[int] = None,
         n_discard_diag: Optional[int] = None,  # deprecated
-        seed=None,
-        sampler_seed: Optional[int] = None,
-        variables=None,
+        n_discard_per_chain_diag: Optional[int] = None,
+        variables: Optional[PyTree] = None,
+        seed: Optional[SeedT] = None,
+        sampler_seed: Optional[SeedT] = None,
         **kwargs,
     ):
         """
@@ -75,35 +75,49 @@ class MCMixedState(VariationalMixedState, MCState):
         Arguments are the same as :class:`MCState`.
 
         Arguments:
-            sampler: The sampler
-            model: (Optional) The model. If not provided, you must provide init_fun and apply_fun.
+            sampler: the sampler.
+            model: (optional) the model. If not provided, you must provide `variables` or `init_fun`, and `apply_fun`.
+            sampler_diag: the sampler for the diagonal of the density matrix. Defaults to be the same type as `sampler`.
+
             n_samples: the total number of samples across chains and processes when sampling (default=1000).
             n_samples_per_rank: the total number of samples across chains on one process when sampling. Cannot be
                 specified together with n_samples (default=None).
-            n_discard_per_chain: number of discarded samples at the beginning of each monte-carlo chain (default=n_samples/10).
-            n_samples_diag: the total number of samples across chains and processes when sampling the diagonal
-                of the density matrix (default=1000).
+            n_discard_per_chain: number of discarded samples at the beginning of each Monte Carlo chain (default=0 for exact sampler,
+                and n_samples/10 for approximate sampler).
+
+            n_samples_diag: the total number of samples across chains and processes when sampling the diagonal (default=1000).
             n_samples_per_rank_diag: the total number of samples across chains on one process when sampling the diagonal.
                 Cannot be specified together with `n_samples_diag` (default=None).
-            n_discard_per_chain_diag: number of discarded samples at the beginning of each monte-carlo chain used when sampling
-                the diagonal of the density matrix for observables (default=n_samples_diag/10).
-            parameters: Optional PyTree of weights from which to start.
-            seed: rng seed used to generate a set of parameters (only if parameters is not passed). Defaults to a random one.
+            n_discard_per_chain_diag: number of discarded samples at the beginning of each Monte Carlo chain when sampling
+                the diagonal (default=0 for exact sampler, and n_samples/10 for approximate sampler).
+
+            variables: parameters and mutable states of the model.
+                See `Flax's module variables documentation <https://flax.readthedocs.io/en/latest/flax.linen.html#module-flax.core.variables>`_
+                (default=None).
+
+            init_fun: Function of the signature `f(model, rng_key, dummy_input) -> variables` used to initialise the variables.
+                Defaults to `model.init(rng_key, dummy_input)`.
+                Only specify if your model has a non-standard init method.
+            apply_fun: Function of the signature `f(model, variables, σ) -> log_psi` used to evaluate the model.
+                Defaults to `model.apply(variables, σ)`.
+                Only specify if your model has a non-standard apply method.
+
+            seed: rng seed used to generate the parameters of the model (only if `variables` is not passed). Defaults to a random one.
             sampler_seed: rng seed used to initialise the sampler. Defaults to a random one.
-            mutable: Dict specifing mutable arguments. Use it to specify if the model has a state that can change
-                during evaluation, but that should not be optimised. See also flax.linen.module.apply documentation
-                (default=False)
-            init_fun: Function of the signature f(model, shape, rng_key, dtype) -> Optional_state, parameters used to
-                initialise the parameters. Defaults to the standard flax initialiser. Only specify if your network has
-                a non-standard init method.
-            apply_fun: Function of the signature f(model, variables, σ) that should evaluate the model. Defafults to
-                `model.apply(variables, σ)`. specify only if your network has a non-standard apply method.
-            training_kwargs: a dict containing the optionaal keyword arguments to be passed to the apply_fun during training.
-                Useful for example when you have a batchnorm layer that constructs the average/mean only during training.
 
+            mutable: Specifies which variable collections of the model should
+                be treated as mutable. bool: all/no collections are mutable. str: The name of a
+                single mutable collection. list: A list of names of mutable collections.
+                This is used to mutate the state of the model while you train it (for example
+                to implement BatchNorm).
+                See `Flax's Module.apply documentation <https://flax.readthedocs.io/en/latest/_modules/flax/linen/module.html#Module.apply>`_
+                (default=False).
         """
+        if seed is None:
+            seed_diag = None
+        else:
+            seed, seed_diag = jax.random.split(nkjax.PRNGKey(seed))
 
-        seed, seed_diag = jax.random.split(nkjax.PRNGKey(seed))
         if sampler_seed is None:
             sampler_seed_diag = None
         else:
@@ -119,10 +133,10 @@ class MCMixedState(VariationalMixedState, MCState):
             sampler.hilbert.physical,
             sampler,
             model,
-            **kwargs,
+            variables=variables,
             seed=seed,
             sampler_seed=sampler_seed,
-            variables=variables,
+            **kwargs,
         )
 
         if sampler_diag is None:
@@ -136,7 +150,7 @@ class MCMixedState(VariationalMixedState, MCState):
             "n_samples",
             "n_discard",
             "n_discard_per_chain",
-        ]:  # TODO remove n_discard after deprecation.
+        ]:  # TODO: remove n_discard after deprecation.
             if kw in kwargs:
                 kwargs.pop(kw)
 
@@ -164,11 +178,6 @@ class MCMixedState(VariationalMixedState, MCState):
             sampler_seed=sampler_seed_diag,
             **kwargs,
         )
-
-        # build the
-
-    # def init(self, *args, **kwargs):
-    #    super().init(*args, **kwargs)
 
     @property
     def diagonal(self):
@@ -206,7 +215,6 @@ class MCMixedState(VariationalMixedState, MCState):
 
     @chain_length_diag.setter
     def chain_length_diag(self, length: int):
-
         self.diagonal.chain_length = length
 
     @property

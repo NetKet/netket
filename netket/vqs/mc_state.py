@@ -32,7 +32,7 @@ from netket import config
 from netket.sampler import Sampler, SamplerState
 from netket.stats import Stats, statistics, mean
 from netket.utils import maybe_wrap_module, deprecated, warn_deprecation, mpi, wrap_afun
-from netket.utils.types import PyTree, SeedT, NNInitFunc
+from netket.utils.types import PyTree, SeedT
 from netket.optimizer import LinearOperator
 from netket.optimizer.qgt import QGTAuto
 
@@ -44,7 +44,7 @@ from netket.operator import (
     Squared,
 )
 
-from .base import VariationalState
+from .base import VariationalState, MutableT
 
 AFunType = Callable[[nn.Module, PyTree, jnp.ndarray], jnp.ndarray]
 ATrainFunType = Callable[
@@ -80,90 +80,112 @@ class MCState(VariationalState):
     """
 
     # model: Any
-    # """The model"""
+    # """The model."""
     model_state: Optional[PyTree]
     """An Optional PyTree encoding a mutable state of the model that is not trained."""
 
     _sampler: Sampler
     """The sampler used to sample the hilbert space."""
     sampler_state: SamplerState
-    """The current state of the sampler"""
+    """The current state of the sampler."""
 
     _n_samples: int = 0
     """Total number of samples across all mpi processes."""
     _n_discard_per_chain: int = 0
-    """Number of samples discarded at the beginning of every Monte-Carlo chain."""
+    """Number of samples discarded at the beginning of every Monte Carlo chain."""
     _samples: Optional[jnp.ndarray] = None
     """Cached samples obtained with the last sampling."""
 
     _init_fun: Callable = None
-    """The function used to initialise the parameters and model_state"""
+    """The function used to initialise the parameters and model_state."""
     _apply_fun: Callable = None
-    """The function used to evaluate the model"""
+    """The function used to evaluate the model."""
 
     def __init__(
         self,
         sampler: Sampler,
         model=None,
         *,
-        n_samples: int = None,
+        n_samples: Optional[int] = None,
         n_samples_per_rank: Optional[int] = None,
         n_discard: Optional[int] = None,  # deprecated
         n_discard_per_chain: Optional[int] = None,
         variables: Optional[PyTree] = None,
-        init_fun: NNInitFunc = None,
-        apply_fun: Callable = None,
-        sample_fun: Callable = None,
+        init_fun: Optional[Callable] = None,
+        apply_fun: Optional[Callable] = None,
+        sample_fun: Optional[Callable] = None,  # TODO: deprecated?
         seed: Optional[SeedT] = None,
         sampler_seed: Optional[SeedT] = None,
-        mutable: bool = False,
-        training_kwargs: Dict = {},
+        mutable: MutableT = False,
+        training_kwargs: Optional[Dict] = None,  # TODO: deprecated?
     ):
         """
         Constructs the MCState.
 
         Args:
-            sampler: The sampler
-            model: (Optional) The model. If not provided, you must provide init_fun and apply_fun.
+            sampler: the sampler.
+            model: (optional) the model. If not provided, you must provide `variables` or `init_fun`, and `apply_fun`.
+
             n_samples: the total number of samples across chains and processes when sampling (default=1000).
             n_samples_per_rank: the total number of samples across chains on one process when sampling. Cannot be
-                specified together with n_samples (default=None).
-            n_discard_per_chain: number of discarded samples at the beginning of each monte-carlo chain (default=0 for exact sampler,
+                specified together with `n_samples` (default=None).
+            n_discard_per_chain: number of discarded samples at the beginning of each Monte Carlo chain (default=0 for exact sampler,
                 and n_samples/10 for approximate sampler).
-            parameters: Optional PyTree of weights from which to start.
-            seed: rng seed used to generate a set of parameters (only if parameters is not passed). Defaults to a random one.
+
+            variables: parameters and mutable states of the model.
+                See `Flax's module variables documentation <https://flax.readthedocs.io/en/latest/flax.linen.html#module-flax.core.variables>`_
+                (default=None).
+
+            init_fun: Function of the signature `f(model, rng_key, dummy_input) -> variables` used to initialise the variables.
+                Defaults to `model.init(rng_key, dummy_input)`.
+                Only specify if your model has a non-standard init method.
+            apply_fun: Function of the signature `f(model, variables, σ) -> log_psi` used to evaluate the model.
+                Defaults to `model.apply(variables, σ)`.
+                Only specify if your model has a non-standard apply method.
+
+            seed: rng seed used to generate the parameters of the model (only if `variables` is not passed). Defaults to a random one.
             sampler_seed: rng seed used to initialise the sampler. Defaults to a random one.
-            mutable: Dict specifing mutable arguments. Use it to specify if the model has a state that can change
-                during evaluation, but that should not be optimised. See also flax.linen.module.apply documentation
-                (default=False)
-            init_fun: Function of the signature f(model, shape, rng_key, dtype) -> Optional_state, parameters used to
-                initialise the parameters. Defaults to the standard flax initialiser. Only specify if your network has
-                a non-standard init method.
-            apply_fun: Function of the signature f(model, variables, σ) that should evaluate the model. Defafults to
-                `model.apply(variables, σ)`. specify only if your network has a non-standard apply method.
-            training_kwargs: a dict containing the optionaal keyword arguments to be passed to the apply_fun during training.
-                Useful for example when you have a batchnorm layer that constructs the average/mean only during training.
+
+            mutable: Specifies which variable collections of the model should
+                be treated as mutable. bool: all/no collections are mutable. str: The name of a
+                single mutable collection. list: A list of names of mutable collections.
+                This is used to mutate the state of the model while you train it (for example
+                to implement BatchNorm).
+                See `Flax's Module.apply documentation <https://flax.readthedocs.io/en/latest/_modules/flax/linen/module.html#Module.apply>`_
+                (default=False).
         """
         super().__init__(sampler.hilbert)
 
-        # Init type 1: pass in a model
         if model is not None:
-            # extract init and apply functions
-            # Wrap it in an HashablePartial because if two instances of the same model are provided,
+            # Init type 1: Pass in a model
+            # Extract init and apply functions
+            # Wrap them in HashablePartial because if two instances of the same model are provided,
             # model.apply and model2.apply will be different methods forcing recompilation, but
             # model and model2 will have the same hash.
+
             _, model = maybe_wrap_module(model)
 
             self.model = model
 
-            self._init_fun = nkjax.HashablePartial(
-                lambda model, *args, **kwargs: model.init(*args, **kwargs), model
-            )
-            self._apply_fun = nkjax.HashablePartial(
-                lambda model, *args, **kwargs: model.apply(*args, **kwargs), model
-            )
+            if init_fun is not None:
+                self._init_fun = init_fun
+            else:
+                self._init_fun = nkjax.HashablePartial(
+                    lambda model, *args, **kwargs: model.init(*args, **kwargs), model
+                )
+
+            if apply_fun is not None:
+                self._apply_fun = apply_fun
+            else:
+                self._apply_fun = nkjax.HashablePartial(
+                    lambda model, *args, **kwargs: model.apply(*args, **kwargs), model
+                )
 
         elif apply_fun is not None:
+            # Init type 2: Pass in `variables` or `init_fun`, and `apply_fun`
+            # Wrap `apply_fun` to be a module-like object with the method `apply`,
+            # and set it as the model
+
             self._apply_fun = apply_fun
 
             if init_fun is not None:
@@ -202,21 +224,20 @@ class MCState(VariationalState):
             )
             n_discard_per_chain = n_discard
 
-        if sample_fun is not None:
-            self._sample_fun = sample_fun
-        else:
-            self._sample_fun = self._apply_fun
-
         self.mutable = mutable
-        self.training_kwargs = flax.core.freeze(training_kwargs)
 
         if variables is not None:
+            # When `self.variables` is set, `self.parameters` and `self.model_state` are
+            # seperately stored. See `VariationalState.variables.setter`.
             self.variables = variables
         else:
-            self.init(seed, dtype=sampler.dtype)
+            # TODO: pass RNG keys for variable collections other than `params`.
+            self.init(
+                seed, dtype=sampler.dtype, n_chains_per_rank=sampler.n_chains_per_rank
+            )
 
         if sampler_seed is None and seed is not None:
-            key, key2 = jax.random.split(nkjax.PRNGKey(seed), 2)
+            key, key2 = jax.random.split(nkjax.PRNGKey(seed))
             sampler_seed = key2
 
         self._sampler_seed = sampler_seed
@@ -229,23 +250,24 @@ class MCState(VariationalState):
 
         self.n_discard_per_chain = n_discard_per_chain
 
-    def init(self, seed=None, dtype=None):
+    def init(self, seed=None, dtype=None, n_chains_per_rank=None):
         """
-        Initialises the variational parameters of the variational state.
+        Initialises the variables of the variational state.
         """
         if self._init_fun is None:
             raise RuntimeError(
-                "Cannot initialise the parameters of this state"
-                "because you did not supply a valid init_function."
+                "Cannot initialise the variables of this state"
+                "because you did not supply a valid init_fun."
             )
 
         if dtype is None:
             dtype = self.sampler.dtype
 
+        if n_chains_per_rank is None:
+            n_chains_per_rank = self.sampler.n_chains_per_rank
+
         key = nkjax.PRNGKey(seed)
-
-        dummy_input = jnp.zeros((1, self.hilbert.size), dtype=dtype)
-
+        dummy_input = jnp.zeros((n_chains_per_rank, self.hilbert.size), dtype=dtype)
         variables = self._init_fun({"params": key}, dummy_input)
         self.variables = variables
 
@@ -365,7 +387,7 @@ class MCState(VariationalState):
     def reset(self):
         """
         Resets the sampled states. This method is called automatically every time
-        that the parameters/state is updated.
+        that the parameters/model_state is updated.
         """
         self._samples = None
 
@@ -420,8 +442,8 @@ class MCState(VariationalState):
         """
         Returns the set of cached samples.
 
-        The samples returnede are guaranteed valid for the current state of
-        the variational state. If no cached parameters are available, then
+        The samples returned are guaranteed valid for the current state of
+        the variational state. If no cached samples are available, then
         they are sampled first and then cached.
 
         To obtain a new set of samples either use :ref:`reset` or :ref:`sample`.
@@ -710,13 +732,13 @@ def grad_expect_operator_kernel(
     if not config.FLAGS["NETKET_EXPERIMENTAL"]:
         raise RuntimeError(
             """
-                           Computing the gradient of a squared or non hermitian
-                           operator is an experimental feature under development
-                           and is known not to return wrong values sometimes.
+Computing the gradient of a squared or non hermitian
+operator is an experimental feature under development
+and is known to return wrong values sometimes.
 
-                           If you want to debug it, set the environment variable
-                           NETKET_EXPERIMENTAL=1
-                           """
+If you want to debug it, set the environment variable
+NETKET_EXPERIMENTAL=1
+"""
         )
 
     σ_shape = σ.shape

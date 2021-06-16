@@ -153,7 +153,7 @@ class FastARNNConv1D(ARNN):
 
 def _conditional(model: ARNN, inputs: Array, index: int) -> Array:
     """
-    Computes the probabilities for a site to take each value.
+    Computes the conditional probabilities for a site to take each value.
     See `ARNN.conditional`.
     """
     if inputs.ndim == 1:
@@ -189,7 +189,7 @@ def _conditionals_log_psi(model: ARNN, inputs: Array) -> Array:
 
 def _conditionals(model: ARNN, inputs: Array) -> Array:
     """
-    Computes the probabilities for each site to take each value.
+    Computes the conditional probabilities for each site to take each value.
     See `ARNN.conditionals`.
     """
     if inputs.ndim == 1:

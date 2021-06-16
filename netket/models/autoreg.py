@@ -48,7 +48,9 @@ class ARNN(nn.Module):
     @abc.abstractmethod
     def conditional(self, inputs: Array, index: int) -> Array:
         """
-        Computes the probabilities for a site to take each value.
+        Computes the conditional probabilities for a site to take each value.
+        This method should only be called successively with indices 0, 1, 2, ...,
+        as in the autoregressive sampling procedure.
 
         Args:
           inputs: configurations with dimensions (batch, Hilbert.size).
@@ -62,7 +64,7 @@ class ARNN(nn.Module):
     @abc.abstractmethod
     def conditionals(self, inputs: Array) -> Array:
         """
-        Computes the probabilities for each site to take each value.
+        Computes the conditional probabilities for each site to take each value.
 
         Args:
           inputs: configurations with dimensions (batch, Hilbert.size).
@@ -210,7 +212,7 @@ def _conditionals_log_psi(model: ARNN, inputs: Array) -> Array:
 
 def _conditionals(model: ARNN, inputs: Array) -> Array:
     """
-    Computes the probabilities for each site to take each value.
+    Computes the conditional probabilities for each site to take each value.
     See `ARNN.conditionals`.
     """
     if inputs.ndim == 1:
