@@ -17,6 +17,7 @@ from functools import partial
 import jax
 from flax.core import freeze
 from jax import numpy as jnp
+
 from netket.sampler import Sampler, SamplerState
 from netket.utils import struct
 from netket.utils.types import PRNGKeyT, PyTree
