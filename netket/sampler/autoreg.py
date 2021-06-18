@@ -15,7 +15,6 @@
 from functools import partial
 
 import jax
-from flax.core import freeze
 from jax import numpy as jnp
 
 from netket.sampler import Sampler, SamplerState
@@ -92,7 +91,7 @@ def _sample_chain(sampler, model, variables, state, chain_length):
     def scan_fun(carry, index):
         σ, cache, key = carry
         if cache:
-            _variables = freeze({**variables, "cache": cache})
+            _variables = {**variables, "cache": cache}
         else:
             _variables = variables
         new_key, key = jax.random.split(key)
