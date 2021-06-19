@@ -31,9 +31,7 @@ np.random.seed(1234)
 WEIGHT_SEED = 1234
 SAMPLER_SEED = 15324
 
-
 samplers = {}
-
 
 # TESTS FOR SPIN HILBERT
 # Constructing a 1d lattice
@@ -112,8 +110,8 @@ def model_and_weights(request):
                 kernel_init=nk.nn.initializers.normal(stddev=0.1),
                 hidden_bias_init=nk.nn.initializers.normal(stddev=0.1),
             )
-            # init network
 
+        # init network
         w = ma.init(jax.random.PRNGKey(WEIGHT_SEED), jnp.zeros((1, hi.size)))
 
         return ma, w
@@ -247,11 +245,8 @@ def test_correct_sampling(sampler_c, model_and_weights, set_pdf_power):
             ma, w, state=sampler_state, chain_length=n_samples // 100
         )
 
-        assert samples.shape == (
-            n_samples // 100,
-            sampler.n_chains,
-            hi.size,
-        )
+        assert samples.shape == (n_samples // 100, sampler.n_chains, hi.size)
+
         samples, sampler_state = sampler.sample(
             ma, w, state=sampler_state, chain_length=n_samples
         )
@@ -322,6 +317,6 @@ def test_throwing(model_and_weights):
 def test_exact_sampler(sampler):
     known_exact_samplers = [nk.sampler.ExactSampler, nk.sampler.ARDirectSampler]
     if any(isinstance(sampler, x) for x in known_exact_samplers):
-        assert sampler.is_exact is True
+        assert sampler.is_exact
     else:
-        assert sampler.is_exact is False
+        assert not sampler.is_exact
