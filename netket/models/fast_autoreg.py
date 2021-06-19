@@ -73,7 +73,7 @@ class FastARNNDense(ARNN):
             for i in range(self.layers)
         ]
 
-    def conditional(self, inputs: Array, index: int) -> Array:
+    def _conditional(self, inputs: Array, index: int) -> Array:
         return _conditional(self, inputs, index)
 
     def conditionals(self, inputs: Array) -> Array:
@@ -137,7 +137,7 @@ class FastARNNConv1D(ARNN):
             for i in range(self.layers)
         ]
 
-    def conditional(self, inputs: Array, index: int) -> Array:
+    def _conditional(self, inputs: Array, index: int) -> Array:
         return _conditional(self, inputs, index)
 
     def conditionals(self, inputs: Array) -> Array:

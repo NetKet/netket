@@ -100,7 +100,7 @@ def _sample_chain(sampler, model, variables, state, chain_length):
             _variables,
             σ,
             index,
-            method=model.conditional,
+            method=model._conditional,
             mutable=["cache"],
         )
         if "cache" in mutables:

@@ -236,7 +236,7 @@ def test_same(partial_models, hilbert, dtype):
             variables,
             spins,
             i,
-            method=model2.conditional,
+            method=model2._conditional,
             mutable=["cache"],
         )
         cache = mutables["cache"]

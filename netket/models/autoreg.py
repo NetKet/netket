@@ -46,10 +46,11 @@ class ARNN(nn.Module):
             raise ValueError("Only unconstrained Hilbert spaces are supported by ARNN.")
 
     @abc.abstractmethod
-    def conditional(self, inputs: Array, index: int) -> Array:
+    def _conditional(self, inputs: Array, index: int) -> Array:
         """
         Computes the conditional probabilities for a site to take each value.
-        This method should only be called successively with indices 0, 1, 2, ...,
+        This method gives the expected output only if the correct caches are given in `variables`.
+        Typically, it should only be called successively with indices 0, 1, 2, ...,
         as in the autoregressive sampling procedure.
 
         Args:
@@ -117,7 +118,7 @@ class ARNNDense(ARNN):
             for i in range(self.layers)
         ]
 
-    def conditional(self, inputs: Array, index: int) -> Array:
+    def _conditional(self, inputs: Array, index: int) -> Array:
         return _conditionals(self, inputs)[:, index, :]
 
     def conditionals(self, inputs: Array) -> Array:
@@ -175,7 +176,7 @@ class ARNNConv1D(ARNN):
             for i in range(self.layers)
         ]
 
-    def conditional(self, inputs: Array, index: int) -> Array:
+    def _conditional(self, inputs: Array, index: int) -> Array:
         return _conditionals(self, inputs)[:, index, :]
 
     def conditionals(self, inputs: Array) -> Array:
