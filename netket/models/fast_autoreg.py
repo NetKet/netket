@@ -50,8 +50,6 @@ class FastARNNDense(ARNN):
     """initializer for the weights."""
     bias_init: NNInitFunc = zeros
     """initializer for the biases."""
-    eps: float = 1e-7
-    """a small number to avoid numerical instability."""
 
     def setup(self):
         if isinstance(self.features, int):
@@ -114,8 +112,6 @@ class FastARNNConv1D(ARNN):
     """initializer for the weights."""
     bias_init: NNInitFunc = zeros
     """initializer for the biases."""
-    eps: float = 1e-7
-    """a small number to avoid numerical instability."""
 
     def setup(self):
         if isinstance(self.features, int):
@@ -167,7 +163,7 @@ def _conditional(model: ARNN, inputs: Array, index: int) -> Array:
             x = model.activation(x)
         x = model._layers[i](x, index)
 
-    log_psi = l2_normalize(x, model.eps)
+    log_psi = l2_normalize(x)
     p = jnp.exp(2 * log_psi.real)
     return p
 
@@ -184,7 +180,7 @@ def _conditionals_log_psi(model: ARNN, inputs: Array) -> Array:
             x = model.activation(x)
         x = model._layers[i].eval_full(x)
 
-    log_psi = l2_normalize(x, model.eps)
+    log_psi = l2_normalize(x)
     return log_psi
 
 
