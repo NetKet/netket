@@ -31,7 +31,9 @@ np.random.seed(1234)
 WEIGHT_SEED = 1234
 SAMPLER_SEED = 15324
 
+
 samplers = {}
+
 
 # TESTS FOR SPIN HILBERT
 # Constructing a 1d lattice
@@ -317,6 +319,6 @@ def test_throwing(model_and_weights):
 def test_exact_sampler(sampler):
     known_exact_samplers = [nk.sampler.ExactSampler, nk.sampler.ARDirectSampler]
     if any(isinstance(sampler, x) for x in known_exact_samplers):
-        assert sampler.is_exact
+        assert sampler.is_exact is True
     else:
-        assert not sampler.is_exact
+        assert sampler.is_exact is False
