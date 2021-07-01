@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+from typing import Callable
 
 import numpy as _np
 import scipy.integrate as _scint
@@ -130,8 +131,11 @@ class PyExactTimePropagation:
         if isinstance(hamiltonian, _nk.operator.AbstractOperator):
             self._h_op = _make_op(hamiltonian, matrix_type)
             self._h = lambda t: self._h_op
+        elif isinstance(hamiltonian, Callable):
+            self._h = lambda t: _make_op(hamiltonian(t), matrix_type)
         else:
-            raise NotImplementedError("Time-dependent hHamiltonian not yet supported.")
+            raise TypeError("hamiltonian needs to be an AbstractOperator or function "
+                            "Time t -> AbstractOperator.")
         self._rhs = _make_rhs(self._h, propagation_type)
 
         self._mynode = _rank
