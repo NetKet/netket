@@ -73,7 +73,7 @@ class _MockMachine:
             json.dump({"StateVector": [[z.real, z.imag] for z in self._state]}, f)
 
 
-class PyExactTimePropagation:
+class ExactTimePropagation:
     r"""
     Solver for exact real and imaginary time evolution, wrapping `scipy.integrate`
     for direct use within NetKet.
@@ -119,7 +119,7 @@ class PyExactTimePropagation:
                >>> hi = nk.hilbert.Spin(1/2, N=graph.n_nodes)
                >>> hamiltonian = nk.operator.Ising(hi, h=1.0, graph=graph)
                >>> psi0 = np.ones(hi.n_states)
-               >>> driver = nk.exact.PyExactTimePropagation(hamiltonian, t0=0, dt=0.1,
+               >>> driver = nk.exact.ExactTimePropagation(hamiltonian, t0=0, dt=0.1,
                ...                                          initial_state=psi0,
                ...                                          propagation_type="imaginary")
                >>> for step in driver.iter(n_iter=3):
