@@ -112,8 +112,8 @@ def model_and_weights(request):
                 kernel_init=nk.nn.initializers.normal(stddev=0.1),
                 hidden_bias_init=nk.nn.initializers.normal(stddev=0.1),
             )
-            # init network
 
+        # init network
         w = ma.init(jax.random.PRNGKey(WEIGHT_SEED), jnp.zeros((1, hi.size)))
 
         return ma, w
@@ -247,11 +247,8 @@ def test_correct_sampling(sampler_c, model_and_weights, set_pdf_power):
             ma, w, state=sampler_state, chain_length=n_samples // 100
         )
 
-        assert samples.shape == (
-            n_samples // 100,
-            sampler.n_chains,
-            hi.size,
-        )
+        assert samples.shape == (n_samples // 100, sampler.n_chains, hi.size)
+
         samples, sampler_state = sampler.sample(
             ma, w, state=sampler_state, chain_length=n_samples
         )

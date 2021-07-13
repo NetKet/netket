@@ -16,9 +16,9 @@ from .rbm import RBM, RBMModPhase, RBMMultiVal, RBMSymm
 from .equivariant import GCNN
 from .jastrow import Jastrow
 from .mps import MPSPeriodic
-
 from .ndm import NDM
 from .autoreg import ARNN, ARNNDense, ARNNConv1D
+from .fast_autoreg import FastARNNDense, FastARNNConv1D
 
 from netket.utils import _hide_submodules
 

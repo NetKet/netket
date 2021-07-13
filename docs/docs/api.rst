@@ -199,6 +199,9 @@ neural quantum states.
    netket.models.GCNN
    netket.models.ARNN
    netket.models.ARNNDense
+   netket.models.ARNNConv1D
+   netket.models.ARNNConv2D
+   netket.models.FastARNNConv1D
 
 
 Model tools
