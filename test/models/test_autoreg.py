@@ -219,7 +219,7 @@ def test_same(partial_models, hilbert, dtype):
 
     key_spins, key_model = jax.random.split(jax.random.PRNGKey(0))
     spins = hilbert.random_state(key_spins, size=batch_size)
-    variables = model2.init(key_model, spins)
+    variables = model2.init(key_model, spins, 0, method=model2._conditional)
 
     p1 = model1.apply(variables, spins, method=model1.conditionals)
     p2 = model2.apply(variables, spins, method=model2.conditionals)
