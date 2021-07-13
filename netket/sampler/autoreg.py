@@ -61,7 +61,7 @@ class ARDirectSampler(Sampler):
         return True
 
     def _init_cache(sampler, model, σ, key):
-        variables = model.init(key, σ)
+        variables = model.init(key, σ, 0, method=model._conditional)
         if "cache" in variables:
             cache = variables["cache"]
         else:

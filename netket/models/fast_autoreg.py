@@ -204,13 +204,6 @@ def _call(model: ARNN, inputs: Array) -> Array:
     if inputs.ndim == 1:
         inputs = jnp.expand_dims(inputs, axis=0)
 
-    initializing = model.is_mutable_collection("params")
-    if initializing:
-        # Create cache
-        x = inputs[:, 0, None]
-        for layer in model._layers:
-            x = layer(x, 0)
-
     idx = (inputs + model.hilbert.local_size - 1) / 2
     idx = jnp.asarray(idx, jnp.int64)
     idx = jnp.expand_dims(idx, axis=-1)
