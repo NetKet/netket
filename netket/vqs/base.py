@@ -14,6 +14,7 @@
 
 import abc
 from typing import Any, Optional, Tuple
+from textwrap import dedent
 
 import jax
 import flax
@@ -26,6 +27,7 @@ import netket.nn as nknn
 from netket.operator import AbstractOperator
 from netket.hilbert import AbstractHilbert
 from netket.utils.types import PyTree, PRNGKeyT, NNInitFunc
+from netket.utils.dispatch import dispatch, TrueT, FalseT
 from netket.stats import Stats
 
 
@@ -147,7 +149,6 @@ class VariationalState(abc.ABC):
         """
         pass
 
-    @abc.abstractmethod
     def expect(self, Ô: AbstractOperator) -> Stats:
         r"""Estimates the quantum expectation value for a given operator O.
             In the case of a pure state $\psi$, this is $<O>= <Psi|O|Psi>/<Psi|Psi>$
@@ -159,7 +160,7 @@ class VariationalState(abc.ABC):
         Returns:
             An estimation of the quantum expectation value <O>.
         """
-        raise NotImplementedError
+        return expect(self, Ô)
 
     def grad(
         self, Ô, *, is_hermitian: Optional[bool] = None, mutable: Optional[Any] = None
@@ -181,7 +182,7 @@ class VariationalState(abc.ABC):
         Ô: AbstractOperator,
         *,
         mutable: Optional[Any] = None,
-        is_hermitian: Optional[bool] = None,
+        use_covariance: Optional[bool] = None,
     ) -> Tuple[Stats, PyTree]:
         r"""Estimates both the gradient of the quantum expectation value of a given operator O.
 
@@ -201,7 +202,10 @@ class VariationalState(abc.ABC):
             An estimation of the quantum expectation value <O>.
             An estimation of the average gradient of the quantum expectation value <O>.
         """
-        raise NotImplementedError
+        if mutable is None:
+            mutable = self.mutable
+
+        return expect_and_grad(self, Ô, use_covariance=use_covariance, mutable=mutable)
 
     # @abc.abstractmethod
     def quantum_geometric_tensor(self, qgt_T):
@@ -241,45 +245,6 @@ class VariationalMixedState(VariationalState):
     def hilbert_physical(self) -> AbstractHilbert:
         return self._hilbert_physical
 
-    def expect(self, Ô: AbstractOperator) -> Stats:
-        # If it is super-operator treat, they act on the same space so
-        # the expectation value is standard.
-        if self.hilbert == Ô.hilbert:
-            return super().expect(Ô)
-        elif self.hilbert_physical == Ô.hilbert:
-            return self.expect_operator(Ô)
-        else:
-            return NotImplemented
-
-    def expect_and_grad(
-        self,
-        Ô: AbstractOperator,
-        mutable: bool = None,
-        is_hermitian: Optional[bool] = None,
-    ) -> Tuple[Stats, PyTree]:
-        # do the computation in super-operator space
-        if self.hilbert == Ô.hilbert:
-            return super().expect_and_grad(
-                Ô, mutable=mutable, is_hermitian=is_hermitian
-            )
-        elif self.hilbert_physical == Ô.hilbert:
-            return super().expect_and_grad(
-                Ô, mutable=mutable, is_hermitian=is_hermitian
-            )
-        else:
-            return NotImplemented
-
-    @abc.abstractmethod
-    def expect_operator(self, Ô: AbstractOperator) -> Stats:
-        raise NotImplementedError
-
-    def grad_operator(self, Ô: AbstractOperator) -> Stats:
-        return self.expect_and_grad_operator(Ô)[1]
-
-    # @abc.abstractmethod
-    def expect_and_grad_operator(self, Ô: AbstractOperator) -> Stats:
-        raise NotImplementedError
-
     def to_matrix(self, normalize: bool = True) -> jnp.ndarray:
         """
         Returns the dense-matrix representation of this operator.
@@ -292,3 +257,71 @@ class VariationalMixedState(VariationalState):
             basis.
         """
         return NotImplemented
+
+
+@dispatch
+def expect(vstate: VariationalState, operator: AbstractOperator):
+    """
+    Computes the expectation value of the given operator over the
+    variational state
+
+    Args:
+        vstate: The VariationalState
+        operator: The Operator or SuperOperator.
+    """
+    raise NotImplementedError(
+        dedent(
+            """
+            To implement vstate.expect for a custom operator, implement
+            the multiple-dispatch (plum-dispatc) based method according
+
+            @nk.vqs.expect.register
+            expect(vstate : {type(vstate)}, operator: {type(operator)}):
+                return ...
+
+            which uses multiple dispatch to select the correct function.
+            """
+        )
+    )
+
+
+# default dispatch where use_covariance is not specified
+@dispatch
+def expect_and_grad(  # noqa: F811
+    vstate: VariationalState,
+    operator: AbstractOperator,
+    *,
+    use_covariance: Optional[bool] = None,
+    mutable=None,
+):
+    r"""Estimates both the gradient of the quantum expectation value of a given operator O.
+
+    Args:
+        vstate: The variational state
+        Ô: the operator Ô for which we compute the expectation value and it's gradient
+        use_covariance: whever to use the covariance formula, usually reserved for
+            hermitian operators.
+        mutable: Can be bool, str, or list. Specifies which collections in the model_state should
+                 be treated as  mutable: bool: all/no collections are mutable. str: The name of a
+                 single mutable  collection. list: A list of names of mutable collections.
+                 This is used to mutate the state of the model while you train it (for example
+                 to implement BatchNorm. Consult
+                 `Flax's Module.apply documentation <https://flax.readthedocs.io/en/latest/_modules/flax/linen/module.html#Module.apply>`_
+                 for a more in-depth exaplanation).
+
+    Returns:
+        An estimation of the quantum expectation value <O>.
+        An estimation of the average gradient of the quantum expectation value <O>.
+    """
+
+    # convert to type-static True/False
+    if isinstance(use_covariance, bool):
+        use_covariance = TrueT() if use_covariance else FalseT()
+
+    if use_covariance is None:
+        use_covariance = TrueT() if operator.is_hermitian else FalseT()
+
+    if mutable is None:
+        mutable = vstate.mutable
+
+    return expect_and_grad(vstate, operator, use_covariance, mutable)
