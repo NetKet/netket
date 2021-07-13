@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+from typing import Callable
 
 import numpy as _np
 import scipy.integrate as _scint
@@ -72,7 +73,7 @@ class _MockMachine:
             json.dump({"StateVector": [[z.real, z.imag] for z in self._state]}, f)
 
 
-class PyExactTimePropagation:
+class ExactTimePropagation:
     r"""
     Solver for exact real and imaginary time evolution, wrapping `scipy.integrate`
     for direct use within NetKet.
@@ -118,7 +119,7 @@ class PyExactTimePropagation:
                >>> hi = nk.hilbert.Spin(1/2, N=graph.n_nodes)
                >>> hamiltonian = nk.operator.Ising(hi, h=1.0, graph=graph)
                >>> psi0 = np.ones(hi.n_states)
-               >>> driver = nk.exact.PyExactTimePropagation(hamiltonian, t0=0, dt=0.1,
+               >>> driver = nk.exact.ExactTimePropagation(hamiltonian, t0=0, dt=0.1,
                ...                                          initial_state=psi0,
                ...                                          propagation_type="imaginary")
                >>> for step in driver.iter(n_iter=3):
@@ -130,8 +131,11 @@ class PyExactTimePropagation:
         if isinstance(hamiltonian, _nk.operator.AbstractOperator):
             self._h_op = _make_op(hamiltonian, matrix_type)
             self._h = lambda t: self._h_op
+        elif isinstance(hamiltonian, Callable):
+            self._h = lambda t: _make_op(hamiltonian(t), matrix_type)
         else:
-            raise NotImplementedError("Time-dependent hHamiltonian not yet supported.")
+            raise TypeError("hamiltonian needs to be an AbstractOperator or function "
+                            "Time t -> AbstractOperator.")
         self._rhs = _make_rhs(self._h, propagation_type)
 
         self._mynode = _rank
