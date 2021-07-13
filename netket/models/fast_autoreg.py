@@ -17,7 +17,6 @@ from typing import Any, Callable, Iterable, Union
 import jax
 from jax import numpy as jnp
 
-from netket.hilbert import CustomHilbert
 from netket.models.autoreg import ARNN, _local_states_to_numbers, l2_normalize
 from netket.nn import FastMaskedConv1D, FastMaskedDense1D
 from netket.nn.initializers import zeros
@@ -32,8 +31,6 @@ class FastARNNDense(ARNN):
     TODO: FastMaskedDense1D does not support JIT yet
     """
 
-    hilbert: CustomHilbert
-    """the discrete Hilbert space."""
     layers: int
     """number of layers."""
     features: Union[Iterable[int], int]
@@ -90,8 +87,6 @@ class FastARNNConv1D(ARNN):
     See :ref:`netket.nn.FastMaskedConv1D` for a brief explanation of fast autoregressive sampling.
     """
 
-    hilbert: CustomHilbert
-    """the discrete Hilbert space."""
     layers: int
     """number of layers."""
     features: Union[Iterable[int], int]
