@@ -16,8 +16,9 @@ from typing import Any, Callable, Iterable, Union
 
 import jax
 from jax import numpy as jnp
+
 from netket.hilbert import CustomHilbert
-from netket.models.autoreg import ARNN, l2_normalize
+from netket.models.autoreg import ARNN, _local_states_to_numbers, l2_normalize
 from netket.nn import FastMaskedConv1D, FastMaskedDense1D
 from netket.nn.initializers import zeros
 from netket.nn.masked_linear import default_kernel_init
@@ -204,8 +205,7 @@ def _call(model: ARNN, inputs: Array) -> Array:
     if inputs.ndim == 1:
         inputs = jnp.expand_dims(inputs, axis=0)
 
-    idx = (inputs + model.hilbert.local_size - 1) / 2
-    idx = jnp.asarray(idx, jnp.int64)
+    idx = _local_states_to_numbers(model.hilbert, inputs)
     idx = jnp.expand_dims(idx, axis=-1)
 
     log_psi = _conditionals_log_psi(model, inputs)
